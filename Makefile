@@ -230,6 +230,9 @@ ifneq ($(LOCAL_WOLFI_EXTRA_REPO),)
 	echo "$(LOCAL_WOLFI_EXTRA_REPO)" >> $(TMP_REPOS_FILE)
 endif
 	docker run $(DOCKER_PLATFORM_ARG) --pull=always --rm -it \
+		--privileged \
+		-v /dev:/dev \
+		-p 8080:8080 \
 		--entrypoint="/bin/sh" \
 		--mount type=bind,source="${PWD}/packages",destination="$(PACKAGES_CONTAINER_FOLDER)",readonly \
 		--mount type=bind,source="${PWD}/$(KEY).pub",destination="/etc/apk/keys/$(KEY).pub",readonly \

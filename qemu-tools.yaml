@@ -1,0 +1,132 @@
+package:
+  name: qemu-tools
+  version: "10.1.2"
+  epoch: 0
+  description: Qemu tools description.
+  copyright:
+    - license: GPL-2.0
+    - license: LGPL-2.1
+    - license: BSD-2-Clause
+    - license: BSD-3-Clause
+    - license: MIT
+
+environment:
+  contents:
+    packages:
+      - git
+      - ninja-build
+      - python3
+      - build-base
+      - samurai
+      - glib-dev
+      - busybox
+      - perl
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/qemu/qemu.git
+      tag: v${{package.version}}
+      expected-commit: ccaea6b2656ec6eab966585f7b16438208f98de7
+
+  - name: Prepare build
+    runs: |
+      mkdir -p build
+
+  - name: Build qemu tools
+    working-directory: /home/build/build
+    pipeline:
+      - runs: |
+          ../configure \
+            --prefix=/usr \
+            --sysconfdir=/etc \
+            --localstatedir=/var \
+            --without-default-features \
+            --disable-system \
+            --disable-user \
+            --disable-linux-user \
+            --disable-bsd-user \
+            --disable-install-blobs \
+            --enable-docs \
+            --enable-stack-protector \
+            --enable-tools \
+            --enable-vpc
+          ninja
+          DESTDIR="${{targets.destdir}}" ninja install
+
+subpackages:
+  - name: qemu-tools-docs
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}"/usr
+          mv "${{targets.destdir}}"/usr/share "${{targets.subpkgdir}}"/usr/
+    test:
+      pipeline:
+        - uses: test/docs
+
+update:
+  enabled: true
+  github:
+    identifier: qemu/qemu
+    strip-prefix: v
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - uses: test/tw/ldd-check
+
+    - name: Verify qemu-img
+      runs: |
+        set -euo pipefail
+
+        # Check if binaries exist
+        for bin in \
+          qemu-img \
+          qemu-io \
+          qemu-nbd \
+          qemu-edid \
+          qemu-storage-daemon \
+          qemu-pr-helper \
+          qemu-vmsr-helper
+        do
+          echo "Checking $bin is in PATH"
+          command -v "$bin"
+        done
+
+        # qemu-img tests
+        qemu-img --version
+        qemu-img create -f qcow2 test.qcow2 64M
+        test -f test.qcow2
+        qemu-img info test.qcow2 | grep -i "virtual size" | grep -i "64 MiB"
+
+        # qemu-io tests
+        # write 512 bytes at offset 0
+        echo "write 0 512" | qemu-io -f qcow2 test.qcow2
+        # read them back
+        echo "read 0 512" | qemu-io -f qcow2 test.qcow2 > /dev/null
+
+        # convert qcow2 to raw
+        qemu-img convert -O raw test.qcow2 test.raw
+        test -f test.raw
+
+        # Test VPC support
+        qemu-img create -f vpc test.vpc 32M
+        test -f test.vpc
+        qemu-img info test.vpc | grep -i "virtual size" | grep -i "32 MiB"
+
+        # qemu-nbd tests
+        qemu-nbd --version
+
+        # qemu-edid tests
+        # Generate an EDID blob for a small mode and ensure we get some output.
+        qemu-edid 800 600 > edid.bin
+        test -s edid.bin
+
+        # qemu-storage-daemon tests
+        qemu-storage-daemon --help > /dev/null
+
+        # qemu-pr-helper tests
+        qemu-pr-helper --help > /dev/null
